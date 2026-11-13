@@ -109,6 +109,13 @@ const CameraController = {
     const mjpegElems = [document.getElementById("kiosk-mjpeg-stream-img"), document.getElementById("mjpeg-stream-img")];
     mjpegElems.forEach(img => {
       if (img) {
+        img.onerror = () => {
+          setTimeout(() => {
+            if (!img.classList.contains("d-none")) {
+              img.src = `/api/camera/current-frame?night_vision=${nv}&t=${Date.now()}`;
+            }
+          }, 1500);
+        };
         img.src = `/api/camera/stream?night_vision=${nv}&t=${Date.now()}`;
         img.classList.remove("d-none");
       }

@@ -175,8 +175,8 @@ const App = {
       if (roleEl) roleEl.innerText = (cachedUser.role || "ADMIN").toUpperCase();
     }
 
-    // Stop kiosk camera stream to avoid multi-stream collisions
-    if (CameraController.stream) CameraController.stopWebcam();
+    // Stop kiosk camera stream to avoid multi-stream collisions and free connection
+    CameraController.stopWebcam();
 
     // Force close any open modals & cleanly remove modal backdrops
     const modalEl = document.getElementById("modal-admin-login");
@@ -292,6 +292,14 @@ const App = {
     if (target) {
       target.classList.add("active");
       target.style.display = "block";
+    }
+
+    // Stop camera if navigating away from camera / enrollment views to save resources
+    if (viewId !== "camera" && viewId !== "enrollment") {
+      CameraController.stopWebcam();
+      if (window.EnrollmentController && EnrollmentController.stream) {
+        EnrollmentController.stopWebcam();
+      }
     }
 
     // View-specific hooks

@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: campus-facial-id-system
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: DB_NAME
+        value: campus_facial_id_db
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: DEFAULT_INSTITUTION_NAME
+        value: Institute
+      - key: DEFAULT_CAMPUS_LOCATION
+        value: Main Campus, North Gate
+      - key: DEFAULT_ADMIN_EMAIL
+        value: admin@institution.edu
+      - key: DEFAULT_ADMIN_PASSWORD
+        value: AdminSecure2026!
+      - key: SIMILARITY_THRESHOLD
+        value: "0.68"
+      - key: COOLDOWN_PERIOD_SECONDS
+        value: "30"
+      - key: ANTI_SPOOFING_ENABLED
+        value: "True"

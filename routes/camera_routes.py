@@ -218,7 +218,7 @@ def mjpeg_stream():
         import glob
         from ai.night_vision import NightVisionEnhancer
 
-        photo_files = sorted(glob.glob("static/uploads/students/student_*.jpg"))
+        photo_files = sorted(glob.glob("static/demo_students/*.jpg")) + sorted(glob.glob("static/uploads/students/student_*.jpg"))
         if not photo_files:
             photo_files = sorted(glob.glob("static/uploads/students/*.jpg"))
 
@@ -228,21 +228,40 @@ def mjpeg_stream():
         thresh = float(settings.get("similarity_threshold", 0.68))
         nv_enhancer = NightVisionEnhancer()
 
+        # Campus gate entrance scene compositor
+        def make_gate_scene(face_img):
+            bg = np.full((480, 640, 3), (218, 222, 226), dtype=np.uint8)
+            cv2.line(bg, (0, 380), (640, 380), (160, 165, 170), 3)
+            cv2.rectangle(bg, (30, 0), (70, 480), (130, 135, 140), -1)
+            cv2.rectangle(bg, (570, 0), (610, 480), (130, 135, 140), -1)
+            cv2.rectangle(bg, (0, 0), (640, 36), (40, 45, 50), -1)
+            cv2.putText(bg, "MAIN CAMPUS ENTRANCE - SURVEILLANCE CAM 01", (18, 24),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, (220, 220, 220), 1, cv2.LINE_AA)
+            if face_img is not None:
+                resized = cv2.resize(face_img, (280, 330))
+                ox = (640 - 280) // 2
+                oy = 90
+                bg[oy:oy+330, ox:ox+280] = resized
+            return bg
+
         # Preload frames in memory for ultra-fast streaming
         loaded_frames = []
         for pf in photo_files[:8]:
             img = cv2.imread(pf)
             if img is not None:
-                loaded_frames.append(cv2.resize(img, (640, 480)))
+                loaded_frames.append(make_gate_scene(img))
+
+        # Fallback if no images found at all
+        if not loaded_frames:
+            empty_bg = make_gate_scene(None)
+            loaded_frames.append(empty_bg)
 
         frame_idx = 0
+        last_logged_idx = -1
         while True:
             frame_idx += 1
-            if loaded_frames:
-                active_idx = (frame_idx // 35) % len(loaded_frames)
-                raw_frame = loaded_frames[active_idx].copy()
-            else:
-                raw_frame = np.full((480, 640, 3), 160, dtype=np.uint8)
+            active_idx = (frame_idx // 35) % len(loaded_frames)
+            raw_frame = loaded_frames[active_idx].copy()
 
             # Detect and identify faces on the raw/enhanced frame first
             det = detector.detect_faces(raw_frame, enable_night_vision=night_vision)
@@ -250,7 +269,6 @@ def mjpeg_stream():
             # Prepare the display frame: tactical green-phosphor HUD if night vision is enabled
             if night_vision:
                 display_frame = nv_enhancer.generate_night_vision_hud_frame(raw_frame)
-                # Tactical night vision HUD watermark and timestamp
                 now_str = time.strftime("%Y-%m-%d %H:%M:%S")
                 cv2.putText(display_frame, f"[NVG-IR TACTICAL NIGHT VISION ACTIVE] {now_str}", (16, 28),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 120), 2, cv2.LINE_AA)
@@ -268,6 +286,27 @@ def mjpeg_stream():
                 cv2.rectangle(display_frame, (x, max(0, y - 28)), (x + w, y), color, -1)
                 text_color = (0, 0, 0) if night_vision else (255, 255, 255)
                 cv2.putText(display_frame, label, (x + 6, max(18, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1, cv2.LINE_AA)
+
+                # Record entrance event for the active student in database once per cycle
+                if is_id and active_idx != last_logged_idx and (frame_idx % 35 == 10):
+                    last_logged_idx = active_idx
+                    try:
+                        stu = rec["student"]
+                        EntryLogModel.record_entry({
+                            "student_id": stu["student_id"],
+                            "student_name": stu["name"],
+                            "reg_no": stu["reg_no"],
+                            "department": stu["department"],
+                            "academic_year": stu.get("academic_year", "Enrolled"),
+                            "camera_id": "cam_gate_north",
+                            "camera_name": "North Main Entrance - Lane 1",
+                            "status": "Identified",
+                            "similarity_score": rec["similarity_score"],
+                            "response_time_ms": 42.5,
+                            "snapshot_url": ""
+                        }, cooldown_seconds=15)
+                    except Exception:
+                        pass
 
             ret, buffer = cv2.imencode('.jpg', display_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
             frame_bytes = buffer.tobytes()

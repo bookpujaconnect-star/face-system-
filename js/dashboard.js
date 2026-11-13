@@ -27,8 +27,9 @@ const App = {
     // 3. Start Live Clock on Kiosk
     this.startKioskClock();
 
-    // 4. Load recent entry history on Kiosk
+    // 4. Load recent entry history on Kiosk and continuously refresh
     this.loadKioskRecentEntries();
+    setInterval(() => this.loadKioskRecentEntries(), 3500);
 
     // 5. Default view: Gate Entrance Camera Scanning Tool (Panel 1)
     this.showKioskPanel();

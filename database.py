@@ -3,6 +3,7 @@ Database Layer for MongoDB Atlas
 Handles connection lifecycle, indexes, and initial configuration auto-seeding.
 """
 
+import os
 import time
 import logging
 from pymongo import MongoClient, ASCENDING, DESCENDING
@@ -145,6 +146,59 @@ class Database:
                     {"$set": {"institution_name": Config.DEFAULT_INSTITUTION_NAME}}
                 )
                 logger.info(f"Institutional configuration synchronized: {Config.DEFAULT_INSTITUTION_NAME}")
+
+            # 3. Seed demo student embeddings if none enrolled
+            enrolled_count = db.students.count_documents({"is_enrolled": True, "embedding": {"$exists": True, "$ne": None}})
+            if enrolled_count == 0:
+                logger.info("Auto-enrolling default demo students for live scanning...")
+                demo_students = [
+                    ("2026/CS/001", "Aarav Sharma", "static/demo_students/student_1.jpg", "Computer Science & Engineering", "4th Year"),
+                    ("2026/CS/002", "Priya Patel", "static/demo_students/student_2.jpg", "Computer Science & Engineering", "3rd Year"),
+                    ("2026/AI/003", "Rohan Verma", "static/demo_students/student_3.jpg", "Artificial Intelligence & Data Science", "3rd Year"),
+                    ("2026/AI/004", "Ananya Iyer", "static/demo_students/student_4.jpg", "Artificial Intelligence & Data Science", "2nd Year"),
+                    ("2026/CS/005", "Arnnav Panda", "static/demo_students/student_5.jpg", "Computer Science & Engineering", "4th Year")
+                ]
+                try:
+                    from ai.face_detector import FaceDetector
+                    from ai.face_recognizer import FaceRecognizer
+                    import cv2
+                    det = FaceDetector.get_instance()
+                    rec = FaceRecognizer.get_instance()
+
+                    for reg, name, img_path, dept, year in demo_students:
+                        if os.path.exists(img_path):
+                            img = cv2.imread(img_path)
+                            res = det.detect_faces(img)
+                            crop = res["faces"][0]["face_crop"] if res["faces"] else img
+                            emb = rec.extract_embedding(crop)
+                            if emb is not None:
+                                emb_list = emb.tolist()
+                                existing = db.students.find_one({"reg_no": reg})
+                                doc = {
+                                    "name": name,
+                                    "embedding": emb_list,
+                                    "is_enrolled": True,
+                                    "biometric_consent": True,
+                                    "department": dept,
+                                    "academic_year": year,
+                                    "photo_url": "/" + img_path,
+                                    "updated_at": time.time()
+                                }
+                                if existing:
+                                    db.students.update_one({"_id": existing["_id"]}, {"$set": doc})
+                                else:
+                                    clean_reg = reg.replace("/", "_").lower()
+                                    doc.update({
+                                        "reg_no": reg,
+                                        "email": f"student_{clean_reg}@institution.edu",
+                                        "status": "Active",
+                                        "created_at": time.time()
+                                    })
+                                    db.students.insert_one(doc)
+                    rec.reload_cache()
+                    logger.info("Demo students enrolled successfully.")
+                except Exception as enroll_err:
+                    logger.warning(f"Could not auto-seed demo student embeddings: {enroll_err}")
         except Exception as e:
             logger.warning(f"Error seeding initial data: {e}")
 

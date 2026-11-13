@@ -1,6 +1,12 @@
 # AI-Based Student Identification and Campus Entry Monitoring System
 ## Facial Recognition, Computer Vision & Edge Entry Surveillance Platform
 
+> **🌐 LIVE APPLICATION URL:**  
+> **Click here to open the live web app on Render:**  
+> 👉 **`https://<your-service-name>.onrender.com`** *(Find your unique link in your [Render Dashboard](https://dashboard.render.com))*  
+>
+> *(Note: GitHub stores the Python code; the live AI web server runs on Render.)*
+
 ---
 
 ### 1. Executive Project Summary

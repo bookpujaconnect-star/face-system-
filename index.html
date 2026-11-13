@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campus Entry AI Monitoring System</title>
+  <!-- Bootstrap 5.3 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Custom Stylesheet with Dark/Light Theme Support -->
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 1: MAIN PAGE - GATE ENTRANCE CAMERA SCANNER (PUBLIC KIOSK)   -->
+  <!-- ================================================================= -->
+  <div id="kiosk-panel" class="kiosk-wrapper">
+    <!-- Kiosk Top Navigation Bar -->
+    <header class="kiosk-navbar">
+      <div class="kiosk-institution-badge">
+        <div class="icon-box">
+          <i data-lucide="scan-face" style="width: 28px; height: 28px;"></i>
+        </div>
+        <div>
+          <h4 class="fw-bold dyn-institution-name mb-0">Institute</h4>
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <span class="badge bg-primary text-white dyn-campus-location">North Main Entrance - Lane 1</span>
+            <span class="text-muted small">• Automated AI Student Entry Verification</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center gap-3">
+        <!-- Live Clock -->
+        <div class="hud-pill d-none d-md-flex">
+          <i data-lucide="clock" style="width: 15px;"></i>
+          <span id="kiosk-live-clock">--:--:--</span>
+        </div>
+
+        <!-- Database Ping Latency -->
+        <div id="kiosk-db-ping" class="hud-pill d-none d-lg-flex">
+          <span class="badge-pulse"></span> Atlas DB: <strong>-- ms</strong>
+        </div>
+
+        <!-- Switch to Admin Panel / Sign In Button -->
+        <button id="btn-kiosk-signin" class="btn btn-outline-primary d-flex align-items-center gap-2 px-3 py-2 fw-semibold" onclick="App.showAdminPanel()">
+          <i data-lucide="log-in" style="width: 16px;"></i>
+          <span>Admin Sign In</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Kiosk Body Content -->
+    <main class="kiosk-body">
+      <div class="row g-4">
+        <!-- Left: Live Video Scanner -->
+        <div class="col-lg-8">
+          <div class="card-custom p-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge-pulse"></span>
+                <h5 class="fw-bold mb-0 text-primary">Live Campus Entrance Camera Feed</h5>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <select id="kiosk-camera-select" class="form-select form-control-custom form-select-sm" style="width: 230px;" onchange="
+                  CameraController.activeCameraId = this.value;
+                  CameraController.activeCameraName = this.options[this.selectedIndex].text;
+                ">
+                  <option value="cam_gate_north" selected>North Main Entrance - Lane 1</option>
+                  <option value="cam_gate_south">South Entrance - Lane 2</option>
+                  <option value="cam_library">Central Library Gate</option>
+                </select>
+                <button id="kiosk-btn-night" class="btn btn-sm btn-outline-warning" onclick="CameraController.toggleNightVision()" title="Toggle Low-Light Night Vision Mode">
+                  <i data-lucide="moon" style="width: 14px;"></i> Night Vision
+                </button>
+                <button id="kiosk-btn-sim" class="btn btn-sm btn-outline-info" onclick="CameraController.startSimulatedFeed()" title="View Live Simulated Gate Feed">
+                  <i data-lucide="play-circle" style="width: 14px;"></i> Live Stream
+                </button>
+                <button id="kiosk-btn-start" class="btn btn-sm btn-success" onclick="CameraController.startWebcam()" title="Start Physical Webcam">
+                  <i data-lucide="camera" style="width: 14px;"></i> Webcam
+                </button>
+                <button id="kiosk-btn-stop" class="btn btn-sm btn-danger d-none" onclick="CameraController.stopWebcam()">
+                  <i data-lucide="pause" style="width: 14px;"></i> Pause
+                </button>
+              </div>
+            </div>
+
+            <!-- Video Monitor Box with HUD Overlay -->
+            <div class="video-monitor-box">
+              <div class="video-hud-overlay">
+                <div id="kiosk-status-pill" class="hud-pill live">
+                  <span class="badge-pulse"></span> LIVE WEBCAM SCANNING
+                </div>
+                <div id="kiosk-night-pill" class="hud-pill d-none" style="background: rgba(16, 185, 129, 0.90); color: #fff; font-weight: bold; border: 1px solid #10b981;">
+                  <i data-lucide="moon" style="width: 12px; height: 12px;"></i> NIGHT VISION ON
+                </div>
+                <div id="kiosk-fps-pill" class="hud-pill fps">
+                  -- FPS
+                </div>
+                <div id="kiosk-lat-pill" class="hud-pill">
+                  Latency: -- ms
+                </div>
+              </div>
+
+              <!-- Main Canvas for Real-time Face Bounding Boxes -->
+              <canvas id="kiosk-camera-canvas" width="640" height="480"></canvas>
+              <video id="kiosk-webcam-video" autoplay playsinline muted class="d-none"></video>
+              <img id="kiosk-mjpeg-stream-img" class="d-none w-100" alt="Camera Stream"/>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Real-time Live Entry Feed -->
+        <div class="col-lg-4">
+          <div class="card-custom h-100 d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <div class="d-flex align-items-center gap-2">
+                <i data-lucide="activity" class="text-primary" style="width: 18px;"></i>
+                <h6 class="fw-bold mb-0">Live Identification Feed</h6>
+              </div>
+              <span class="badge bg-secondary small">Real-Time Access</span>
+            </div>
+
+            <!-- Live cards container -->
+            <div id="kiosk-detections-list" class="flex-grow-1" style="max-height: 480px; overflow-y: auto;">
+              <div class="text-muted small text-center py-5">
+                <div class="spinner-border spinner-border-sm text-primary mb-2"></div>
+                <div>Scanning for students at the entrance point...</div>
+              </div>
+            </div>
+
+            <!-- Institutional Entry Notice Box -->
+            <div class="p-3 rounded border border-secondary mt-3 small" style="background: rgba(37, 99, 235, 0.05);">
+              <div class="fw-bold text-primary mb-1">Campus Identification Policy</div>
+              <p class="text-muted mb-0 small">
+                Unregistered individuals are marked as <strong>Unknown</strong> for manual security check. Entry is never denied automatically based solely on an AI match.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- PANEL 2: ADMIN MANAGEMENT PORTAL (REST OF SYSTEM)                 -->
+  <!-- ================================================================= -->
+  <div id="admin-panel" class="d-none">
+
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar-wrapper">
+      <div class="sidebar-brand">
+        <div class="brand-icon">
+          <i data-lucide="shield-check" style="width: 24px; height: 24px;"></i>
+        </div>
+        <div>
+          <h5 class="dyn-institution-name text-truncate" style="max-width: 175px;">Institute</h5>
+          <small class="dyn-campus-location text-truncate d-block" style="max-width: 175px;">Admin Suite</small>
+        </div>
+      </div>
+
+      <ul class="sidebar-nav">
+        <li class="nav-section-title">Core Operations</li>
+        <li class="nav-item">
+          <a class="nav-link active" data-view="dashboard" onclick="App.navigateTo('dashboard')">
+            <i data-lucide="layout-dashboard"></i> Main Dashboard
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="camera" onclick="App.navigateTo('camera')">
+            <i data-lucide="video"></i> Live Camera Monitoring
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="recognition-results" onclick="App.navigateTo('recognition-results')">
+            <i data-lucide="user-check"></i> Recognition Results
+          </a>
+        </li>
+
+        <li class="nav-section-title">Members & Biometrics</li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="students" onclick="App.navigateTo('students')">
+            <i data-lucide="users"></i> Student & Faculty Directory
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="student-registration" onclick="App.navigateTo('student-registration')">
+            <i data-lucide="user-plus"></i> Student Registration
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="faculty-registration" onclick="App.navigateTo('faculty-registration')">
+            <i data-lucide="graduation-cap"></i> Faculty Registration
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="enrollment" onclick="App.navigateTo('enrollment')">
+            <i data-lucide="camera"></i> Facial Enrollment
+          </a>
+        </li>
+
+        <li class="nav-section-title">Monitoring & Logs</li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="entries" onclick="App.navigateTo('entries')">
+            <i data-lucide="clipboard-list"></i> Entry History
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="unknowns" onclick="App.navigateTo('unknowns')">
+            <i data-lucide="user-x"></i> Unknown Records
+          </a>
+        </li>
+
+        <li class="nav-section-title">Research & Config</li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="evaluation" onclick="App.navigateTo('evaluation')">
+            <i data-lucide="bar-chart-2"></i> Performance Analytics
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-view="settings" onclick="App.navigateTo('settings')">
+            <i data-lucide="settings"></i> System Settings
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="d-flex align-items-center gap-2">
+            <div class="avatar-sm rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+              <i data-lucide="user" style="width: 16px;"></i>
+            </div>
+            <div>
+              <div id="admin-display-name" class="fw-bold small" style="max-width: 120px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Administrator</div>
+              <span id="admin-role-badge" class="badge bg-secondary" style="font-size: 9px;">ADMIN</span>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-outline-danger border-0 p-1" onclick="App.handleAdminLogout()" title="Logout">
+            <i data-lucide="log-out" style="width: 16px;"></i>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Admin Main Content Area -->
+    <div id="main-wrapper">
+      <!-- Admin Top Navbar with Dark/Light Mode Toggle -->
+      <nav class="top-navbar">
+        <div class="institution-title-badge">
+          <span class="badge-pulse"></span>
+          <h6 class="dyn-institution-name mb-0 fw-bold">Institute</h6>
+          <span class="text-muted small ms-2">|</span>
+          <span class="text-muted small dyn-campus-location">Administration Portal</span>
+        </div>
+
+        <div class="d-flex align-items-center gap-3">
+          <!-- Dark / Light Mode Toggle Button -->
+          <button id="btn-theme-toggle" class="btn-theme-toggle" onclick="App.toggleTheme()" title="Toggle Dark / Light Theme">
+            <i data-lucide="sun" style="width: 15px;"></i> Light Mode
+          </button>
+
+          <!-- Return to Gate Kiosk Button -->
+          <button class="btn btn-sm btn-outline-success d-flex align-items-center gap-1" onclick="App.showKioskPanel()" title="Switch back to Entrance Scanner">
+            <i data-lucide="arrow-left" style="width: 15px;"></i> Return to Gate Scanner
+          </button>
+
+          <!-- Database Latency Ping Badge -->
+          <div id="navbar-db-ping" class="hud-pill d-none d-md-flex">
+            <span class="badge-pulse"></span> Atlas DB: <strong>-- ms</strong>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Admin Views Container -->
+      <div class="content-body">
+
+        <!-- ========================================== -->
+        <!-- 2. MAIN DASHBOARD VIEW                     -->
+        <!-- ========================================== -->
+        <div id="view-dashboard" class="app-view active">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">Campus Surveillance & Entry Dashboard</h4>
+              <p class="text-muted small mb-0">Real-time facial identification, entry metrics, and perimeter access logs.</p>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-primary" onclick="StudentsController.handleSeedSynthetic()">
+                <i data-lucide="database" style="width: 14px;" class="me-1"></i> Seed 8 Synthetic Students
+              </button>
+              <button class="btn btn-sm btn-primary" onclick="App.loadDashboardData()">
+                <i data-lucide="refresh-cw" style="width: 14px;" class="me-1"></i> Refresh
+              </button>
+            </div>
+          </div>
+
+          <!-- KPI Stat Cards -->
+          <div class="row g-3 mb-4">
+            <div class="col-md-4 col-xl-2">
+              <div class="stat-card">
+                <div class="stat-icon primary"><i data-lucide="users"></i></div>
+                <div>
+                  <div id="kpi-registered-students" class="stat-val">0</div>
+                  <div class="stat-label">Registered Students</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4 col-xl-2">
+              <div class="stat-card">
+                <div class="stat-icon success"><i data-lucide="scan"></i></div>
+                <div>
+                  <div id="kpi-enrolled-biometrics" class="stat-val">0</div>
+                  <div class="stat-label">Enrolled Biometrics</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4 col-xl-2">
+              <div class="stat-card">
+                <div class="stat-icon success"><i data-lucide="user-check"></i></div>
+                <div>
+                  <div id="kpi-entries-today" class="stat-val">0</div>
+                  <div class="stat-label">Identified Today</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4 col-xl-2">
+              <div class="stat-card">
+                <div class="stat-icon danger"><i data-lucide="user-x"></i></div>
+                <div>
+                  <div id="kpi-unknowns-today" class="stat-val">0</div>
+                  <div class="stat-label">Unknown Detections</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4 col-xl-2">
+              <div class="stat-card">
+                <div class="stat-icon warning"><i data-lucide="zap"></i></div>
+                <div>
+                  <div id="kpi-avg-rec-time" class="stat-val">-- ms</div>
+                  <div class="stat-label">Avg Recognition Time</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-4 col-xl-2">
+              <div class="stat-card">
+                <div class="stat-icon info"><i data-lucide="database"></i></div>
+                <div>
+                  <div id="kpi-db-latency" class="stat-val">-- ms</div>
+                  <div class="stat-label">Atlas Query Latency</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts Row -->
+          <div class="row g-4 mb-4">
+            <div class="col-lg-8">
+              <div class="card-custom">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="fw-bold mb-0">Daily Identification Trends (Past 7 Days)</h6>
+                  <span class="badge bg-secondary small">Traffic Distribution</span>
+                </div>
+                <div style="height: 280px;">
+                  <canvas id="chart-dashboard-daily"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="card-custom">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="fw-bold mb-0">Department Enrollment</h6>
+                  <span class="badge bg-secondary small">Distribution</span>
+                </div>
+                <div style="height: 280px; display: flex; align-items: center; justify-content: center;">
+                  <canvas id="chart-dashboard-depts"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 3. STUDENT REGISTRATION VIEW               -->
+        <!-- ========================================== -->
+        <div id="view-student-registration" class="app-view">
+          <div class="mb-4">
+            <h4 class="fw-bold mb-1">Student Registration</h4>
+            <p class="text-muted small">Register a student record before capturing facial biometric samples.</p>
+          </div>
+
+          <div class="row justify-content-center">
+            <div class="col-lg-8">
+              <div class="card-custom">
+                <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom border-secondary">
+                  <span class="badge bg-primary px-3 py-2 fw-semibold">Student Enrollment Mode</span>
+                  <button type="button" class="btn btn-sm btn-outline-info d-flex align-items-center gap-1" onclick="App.navigateTo('faculty-registration')">
+                    <i data-lucide="graduation-cap" style="width: 14px;"></i> Switch to Faculty Registration
+                  </button>
+                </div>
+                <form id="form-register-student-page" onsubmit="
+                  event.preventDefault();
+                  API.createStudent({
+                    reg_no: document.getElementById('reg-page-reg').value.trim(),
+                    name: document.getElementById('reg-page-name').value.trim(),
+                    email: document.getElementById('reg-page-email').value.trim(),
+                    department: document.getElementById('reg-page-dept').value,
+                    academic_year: document.getElementById('reg-page-year').value,
+                    member_type: 'Student',
+                    phone: document.getElementById('reg-page-phone').value.trim(),
+                    biometric_consent: document.getElementById('reg-page-consent').checked
+                  }).then(() => {
+                    alert('Student registered successfully!');
+                    App.navigateTo('students');
+                  }).catch(e => alert(e.message));
+                ">
+                  <div class="row g-3">
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Student Registration Number *</label>
+                      <input type="text" id="reg-page-reg" class="form-control form-control-custom text-uppercase" placeholder="e.g. 2026/CS/042" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Full Name *</label>
+                      <input type="text" id="reg-page-name" class="form-control form-control-custom" placeholder="e.g. Alex Henderson" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Academic Email *</label>
+                      <input type="email" id="reg-page-email" class="form-control form-control-custom" placeholder="alex@institution.edu" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Phone Number</label>
+                      <input type="text" id="reg-page-phone" class="form-control form-control-custom" placeholder="+1 555-0199">
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Department</label>
+                      <select id="reg-page-dept" class="form-select form-control-custom">
+                        <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                        <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
+                        <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
+                        <option value="Mechanical Engineering">Mechanical Engineering</option>
+                        <option value="Civil Engineering">Civil Engineering</option>
+                        <option value="Applied Sciences & Humanities">Applied Sciences & Humanities</option>
+                        <option value="School of Management">School of Management</option>
+                      </select>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Academic Year</label>
+                      <select id="reg-page-year" class="form-select form-control-custom">
+                        <option value="1st Year">1st Year</option>
+                        <option value="2nd Year">2nd Year</option>
+                        <option value="3rd Year">3rd Year</option>
+                        <option value="4th Year">4th Year</option>
+                        <option value="Postgraduate">Postgraduate</option>
+                      </select>
+                    </div>
+
+                    <div class="col-12 mt-4">
+                      <div class="p-3 rounded border border-secondary" style="background: rgba(37, 99, 235, 0.05);">
+                        <div class="form-check">
+                          <input class="form-check-input" type="checkbox" id="reg-page-consent" required>
+                          <label class="form-check-label small" for="reg-page-consent">
+                            <strong>Informed Biometric Consent:</strong> I confirm the student has been provided with the biometric policy notice and grants explicit consent to capture and process facial feature vectors strictly for campus security and identification purposes.
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="col-12 mt-4 text-end">
+                      <button type="submit" class="btn btn-primary px-4 py-2">
+                        Complete Student Registration
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 3B. FACULTY REGISTRATION VIEW              -->
+        <!-- ========================================== -->
+        <div id="view-faculty-registration" class="app-view">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">Faculty & Academic Staff Registration</h4>
+              <p class="text-muted small mb-0">Register institutional faculty members, professors, and department heads for campus entry monitoring.</p>
+            </div>
+            <button class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1" onclick="App.navigateTo('student-registration')">
+              <i data-lucide="user-plus" style="width: 14px;"></i> Switch to Student Registration
+            </button>
+          </div>
+
+          <div class="row justify-content-center">
+            <div class="col-lg-8">
+              <div class="card-custom">
+                <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom border-secondary">
+                  <span class="badge bg-purple text-white px-3 py-2 fw-semibold" style="background-color: #8b5cf6;">Faculty Enrollment Mode</span>
+                  <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1" onclick="App.navigateTo('student-registration')">
+                    <i data-lucide="user" style="width: 14px;"></i> Register Student Instead
+                  </button>
+                </div>
+                <form id="form-register-faculty-page" onsubmit="
+                  event.preventDefault();
+                  API.createStudent({
+                    reg_no: document.getElementById('reg-fac-id').value.trim(),
+                    name: document.getElementById('reg-fac-name').value.trim(),
+                    email: document.getElementById('reg-fac-email').value.trim(),
+                    department: document.getElementById('reg-fac-dept').value,
+                    academic_year: document.getElementById('reg-fac-designation').value,
+                    designation: document.getElementById('reg-fac-designation').value,
+                    member_type: 'Faculty',
+                    phone: document.getElementById('reg-fac-phone').value.trim(),
+                    biometric_consent: document.getElementById('reg-fac-consent').checked
+                  }).then(() => {
+                    alert('Faculty member registered successfully!');
+                    App.navigateTo('students');
+                  }).catch(e => alert(e.message));
+                ">
+                  <div class="row g-3">
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Faculty / Employee ID *</label>
+                      <input type="text" id="reg-fac-id" class="form-control form-control-custom text-uppercase" placeholder="e.g. FAC/2026/01" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Full Name (with Title) *</label>
+                      <input type="text" id="reg-fac-name" class="form-control form-control-custom" placeholder="e.g. Prof. David Miller, Ph.D." required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Official Institutional Email *</label>
+                      <input type="email" id="reg-fac-email" class="form-control form-control-custom" placeholder="dmiller@institution.edu" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Contact Phone Number</label>
+                      <input type="text" id="reg-fac-phone" class="form-control form-control-custom" placeholder="+1 555-0811">
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Academic Department *</label>
+                      <select id="reg-fac-dept" class="form-select form-control-custom">
+                        <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                        <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
+                        <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
+                        <option value="Mechanical Engineering">Mechanical Engineering</option>
+                        <option value="Civil Engineering">Civil Engineering</option>
+                        <option value="Applied Sciences & Humanities">Applied Sciences & Humanities</option>
+                        <option value="School of Management">School of Management</option>
+                      </select>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Faculty Designation *</label>
+                      <select id="reg-fac-designation" class="form-select form-control-custom">
+                        <option value="Professor & Department Head">Professor & Department Head</option>
+                        <option value="Professor">Professor</option>
+                        <option value="Associate Professor">Associate Professor</option>
+                        <option value="Assistant Professor" selected>Assistant Professor</option>
+                        <option value="Senior Lecturer">Senior Lecturer</option>
+                        <option value="Research Fellow / Postdoc">Research Fellow / Postdoc</option>
+                        <option value="Visiting Faculty">Visiting Faculty</option>
+                      </select>
+                    </div>
+
+                    <div class="col-12 mt-4">
+                      <div class="p-3 rounded border border-secondary" style="background: rgba(139, 92, 246, 0.08);">
+                        <div class="form-check">
+                          <input class="form-check-input" type="checkbox" id="reg-fac-consent" required>
+                          <label class="form-check-label small" for="reg-fac-consent">
+                            <strong>Informed Faculty Biometric Consent:</strong> I confirm the faculty member has been provided with institutional biometric policy guidelines and gives explicit authorization to encode facial vectors strictly for campus security and attendance verification.
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="col-12 mt-4 text-end">
+                      <button type="submit" class="btn btn-primary px-4 py-2" style="background-color: #8b5cf6; border-color: #8b5cf6;">
+                        <i data-lucide="check" style="width: 14px;" class="me-1"></i> Complete Faculty Registration
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 4. STUDENT & FACULTY MANAGEMENT VIEW       -->
+        <!-- ========================================== -->
+        <div id="view-students" class="app-view">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">Student & Faculty Directory</h4>
+              <p class="text-muted small mb-0">Search, update, import/export records, and manage biometric states for students and faculty.</p>
+            </div>
+            <div class="d-flex gap-2">
+              <span id="total-students-count-badge" class="badge bg-primary px-3 py-2 d-flex align-items-center">0 Members</span>
+              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modal-import-students">
+                <i data-lucide="upload" style="width: 14px;" class="me-1"></i> Import CSV/Excel
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="window.location.href='/api/students/export'">
+                <i data-lucide="download" style="width: 14px;" class="me-1"></i> Export Roster
+              </button>
+              <button class="btn btn-sm btn-outline-info" onclick="App.navigateTo('faculty-registration')">
+                <i data-lucide="graduation-cap" style="width: 14px;" class="me-1"></i> Add Faculty
+              </button>
+              <button class="btn btn-sm btn-primary" onclick="App.navigateTo('student-registration')">
+                <i data-lucide="user-plus" style="width: 14px;" class="me-1"></i> Add Student
+              </button>
+            </div>
+          </div>
+
+          <!-- Filters -->
+          <div class="card card-custom p-3 mb-4">
+            <div class="row g-2">
+              <div class="col-md-4">
+                <input type="text" id="student-search-input" class="form-control form-control-custom" placeholder="Search by name, ID number, or email..." onkeyup="if(event.key==='Enter') StudentsController.loadStudents()">
+              </div>
+              <div class="col-md-2">
+                <select id="student-type-filter" class="form-select form-control-custom" onchange="StudentsController.loadStudents()">
+                  <option value="All">All Roles</option>
+                  <option value="Student">Students Only</option>
+                  <option value="Faculty">Faculty Only</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <select id="student-dept-filter" class="form-select form-control-custom" onchange="StudentsController.loadStudents()">
+                  <option value="All">All Departments</option>
+                  <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                  <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
+                  <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
+                  <option value="Mechanical Engineering">Mechanical Engineering</option>
+                  <option value="Civil Engineering">Civil Engineering</option>
+                  <option value="Applied Sciences & Humanities">Applied Sciences & Humanities</option>
+                  <option value="School of Management">School of Management</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <select id="student-status-filter" class="form-select form-control-custom" onchange="StudentsController.loadStudents()">
+                  <option value="All">All Statuses</option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+              <div class="col-md-1">
+                <button class="btn btn-primary w-100" onclick="StudentsController.loadStudents()">
+                  <i data-lucide="search" style="width: 14px;"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Roster Table -->
+          <div class="card card-custom p-0 overflow-hidden">
+            <div class="table-responsive">
+              <table class="table-dark-custom">
+                <thead>
+                  <tr>
+                    <th>Member Details</th>
+                    <th>Role</th>
+                    <th>Reg / Employee ID</th>
+                    <th>Department</th>
+                    <th>Designation / Year</th>
+                    <th>Biometric State</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="students-table-body">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 5. FACIAL ENROLLMENT VIEW                  -->
+        <!-- ========================================== -->
+        <div id="view-enrollment" class="app-view">
+          <div class="mb-4">
+            <h4 class="fw-bold mb-1">Facial Biometric Enrollment</h4>
+            <p class="text-muted small">Capture high-quality facial samples, validate illumination/sharpness, and generate 512-d FaceNet embeddings.</p>
+          </div>
+
+          <div class="row g-4">
+            <div class="col-lg-6">
+              <div class="card-custom text-center">
+                <h6 class="fw-bold mb-3">Live Biometric Capture Chamber</h6>
+
+                <div class="video-monitor-box mb-3" style="max-width: 480px; aspect-ratio: 1/1;">
+                  <video id="enroll-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+                  <img id="enroll-preview-img" class="d-none" style="width: 100%; height: 100%; object-fit: cover;" alt="Captured Face"/>
+                  <canvas id="enroll-canvas" class="d-none"></canvas>
+                </div>
+
+                <div class="d-flex justify-content-center gap-2 mb-3">
+                  <button id="btn-enroll-snap" class="btn btn-primary" onclick="EnrollmentController.captureSnapshot()" disabled>
+                    <i data-lucide="camera" style="width: 16px;" class="me-1"></i> Capture Face Snapshot
+                  </button>
+                  <button id="btn-enroll-retake" class="btn btn-secondary d-none" onclick="EnrollmentController.retakeSnapshot()">
+                    <i data-lucide="rotate-ccw" style="width: 16px;" class="me-1"></i> Retake
+                  </button>
+                </div>
+
+                <div class="text-muted small mb-2">Or select a high-resolution photo file:</div>
+                <input type="file" id="enroll-file-input" class="form-control form-control-custom mx-auto" style="max-width: 380px;" accept="image/*" onchange="EnrollmentController.handleFileUpload(event)">
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <div class="card-custom">
+                <h6 class="fw-bold mb-3">Enrollment Parameters & Consent</h6>
+
+                <div class="mb-3">
+                  <label class="form-label text-muted small">Select Registered Student *</label>
+                  <select id="enroll-student-select" class="form-select form-control-custom" onchange="EnrollmentController.checkCommitReadiness()">
+                    <option value="">-- Select Student --</option>
+                  </select>
+                </div>
+
+                <!-- Quality Validation Results Card -->
+                <div id="quality-results-box" class="mb-3 d-none">
+                  <!-- Dynamically populated -->
+                </div>
+
+                <!-- Informed Consent Checklist -->
+                <div class="p-3 rounded border border-secondary mb-4" style="background: rgba(37, 99, 235, 0.05);">
+                  <h6 class="fw-bold small mb-2">Data Privacy & Consent Terms</h6>
+                  <p class="text-muted small mb-2">In compliance with educational privacy frameworks, facial images are transformed into irreversible 512-dimensional mathematical embeddings. Raw biometric features are stored securely with encryption.</p>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="enroll-consent-check" onchange="EnrollmentController.checkCommitReadiness()">
+                    <label class="form-check-label small" for="enroll-consent-check">
+                      Student has granted explicit informed consent for biometric facial recognition.
+                    </label>
+                  </div>
+                </div>
+
+                <button id="btn-commit-enroll" class="btn btn-success w-100 py-2 fw-semibold" onclick="EnrollmentController.commitEnrollment()" disabled>
+                  Complete Facial Enrollment
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 6. LIVE CAMERA MONITORING VIEW (ADMIN)     -->
+        <!-- ========================================== -->
+        <div id="view-camera" class="app-view">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">Campus Surveillance Camera Stream</h4>
+              <p class="text-muted small mb-0">Multi-lane entry gate surveillance, YOLO bounding boxes, and response time HUD.</p>
+            </div>
+            <div class="d-flex gap-2">
+              <button id="btn-night-camera" class="btn btn-sm btn-outline-warning" onclick="CameraController.toggleNightVision()" title="Toggle Low-Light Night Vision Mode">
+                <i data-lucide="moon" style="width: 14px;" class="me-1"></i> Night Vision
+              </button>
+              <button class="btn btn-sm btn-outline-info" onclick="CameraController.startSimulatedFeed()" title="View Live Campus Gate Stream">
+                <i data-lucide="play-circle" style="width: 14px;" class="me-1"></i> Live Stream
+              </button>
+              <button id="btn-start-camera" class="btn btn-sm btn-success" onclick="CameraController.startWebcam()">
+                <i data-lucide="video" style="width: 14px;" class="me-1"></i> Start Camera
+              </button>
+              <button id="btn-stop-camera" class="btn btn-sm btn-danger d-none" onclick="CameraController.stopWebcam()">
+                <i data-lucide="video-off" style="width: 14px;" class="me-1"></i> Stop Camera
+              </button>
+            </div>
+          </div>
+
+          <div class="row g-4">
+            <div class="col-lg-8">
+              <div class="card-custom p-3">
+                <div class="video-monitor-box">
+                  <div class="video-hud-overlay">
+                    <div id="camera-status-pill" class="hud-pill live">
+                      <span class="badge-pulse"></span> LIVE
+                    </div>
+                    <div id="camera-night-pill" class="hud-pill d-none" style="background: rgba(16, 185, 129, 0.90); color: #fff; font-weight: bold; border: 1px solid #10b981;">
+                      <i data-lucide="moon" style="width: 12px; height: 12px;"></i> NIGHT VISION ON
+                    </div>
+                    <div id="camera-fps-pill" class="hud-pill fps">
+                      -- FPS
+                    </div>
+                    <div id="camera-lat-pill" class="hud-pill">
+                      Latency: -- ms
+                    </div>
+                  </div>
+
+                  <canvas id="camera-canvas" width="640" height="480"></canvas>
+                  <video id="webcam-video" autoplay playsinline muted class="d-none"></video>
+                  <img id="mjpeg-stream-img" class="d-none w-100" alt="Camera Stream"/>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Detections Stream -->
+            <div class="col-lg-4">
+              <div class="card-custom" style="max-height: 580px; overflow-y: auto;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="fw-bold mb-0">Live Recognition Feed</h6>
+                  <span class="badge bg-secondary small">Real-Time Events</span>
+                </div>
+                <div id="live-detections-list">
+                  <div class="text-muted small text-center py-4">Waiting for faces in camera view...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 7. RECOGNITION RESULTS VIEW                -->
+        <!-- ========================================== -->
+        <div id="view-recognition-results" class="app-view">
+          <div class="mb-4">
+            <h4 class="fw-bold mb-1">Student Recognition Results</h4>
+            <p class="text-muted small">Detailed identification event credentials, similarity scores, and non-biometric alternative fallbacks.</p>
+          </div>
+
+          <div class="row justify-content-center">
+            <div class="col-lg-8">
+              <div class="card-custom">
+                <div class="text-center py-3">
+                  <div class="brand-icon mx-auto mb-3" style="width: 64px; height: 64px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="user-check" style="width: 36px; height: 36px;"></i>
+                  </div>
+                  <h5 class="fw-bold mb-1">AI Facial Recognition Pipeline</h5>
+                  <p class="text-muted small">Instantaneous biometric verification matches against enrolled 512-d FaceNet records.</p>
+                </div>
+
+                <div class="row g-3 p-3 rounded border border-secondary mb-4" style="background: rgba(37, 99, 235, 0.05);">
+                  <div class="col-md-6">
+                    <span class="text-muted small d-block">Face Detection Model</span>
+                    <strong class="text-primary">YOLOv8 + OpenCV Haar Fusion (Multi-Face)</strong>
+                  </div>
+                  <div class="col-md-6">
+                    <span class="text-muted small d-block">Feature Extraction Backbone</span>
+                    <strong class="text-primary">FaceNet (InceptionResnetV1, 512-dim)</strong>
+                  </div>
+                  <div class="col-md-6">
+                    <span class="text-muted small d-block">Similarity Metric</span>
+                    <strong class="text-primary">Cosine Similarity (Normalized Dot Product)</strong>
+                  </div>
+                  <div class="col-md-6">
+                    <span class="text-muted small d-block">Entry Decision Policy</span>
+                    <strong class="text-success">Human-in-the-loop: Never deny entry automatically</strong>
+                  </div>
+                </div>
+
+                <div class="alert alert-info py-2 small mb-0">
+                  <strong>Notice:</strong> In case of presentation anomaly, facial alteration, or AI mismatch, the security officer may perform manual verification using the student's physical institutional ID card.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 8. ENTRY HISTORY VIEW                      -->
+        <!-- ========================================== -->
+        <div id="view-entries" class="app-view">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">Campus Entry History</h4>
+              <p class="text-muted small mb-0">Comprehensive event log of recognized student entries with camera ID, timestamp, and similarity confidence.</p>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-secondary" onclick="EntriesController.exportCSV()">
+                <i data-lucide="download" style="width: 14px;" class="me-1"></i> Export Entry History (CSV)
+              </button>
+            </div>
+          </div>
+
+          <!-- Filters -->
+          <div class="card card-custom p-3 mb-4">
+            <div class="row g-2">
+              <div class="col-md-3">
+                <input type="text" id="entry-search-reg" class="form-control form-control-custom" placeholder="Filter by Reg No...">
+              </div>
+              <div class="col-md-3">
+                <select id="entry-filter-dept" class="form-select form-control-custom">
+                  <option value="All">All Departments</option>
+                  <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                  <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
+                  <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
+                  <option value="Mechanical Engineering">Mechanical Engineering</option>
+                  <option value="Civil Engineering">Civil Engineering</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <input type="date" id="entry-start-date" class="form-control form-control-custom">
+              </div>
+              <div class="col-md-2">
+                <input type="date" id="entry-end-date" class="form-control form-control-custom">
+              </div>
+              <div class="col-md-2">
+                <button class="btn btn-primary w-100" onclick="EntriesController.loadEntries()">
+                  <i data-lucide="search" style="width: 14px;" class="me-1"></i> Apply
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Entries Table -->
+          <div class="card card-custom p-0 overflow-hidden">
+            <div class="table-responsive">
+              <table class="table-dark-custom">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Student Identity</th>
+                    <th>Department</th>
+                    <th>Entrance Camera</th>
+                    <th>Cosine Similarity</th>
+                    <th>Pipeline Latency</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="entries-table-body">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 9. UNKNOWN DETECTION RECORDS VIEW          -->
+        <!-- ========================================== -->
+        <div id="view-unknowns" class="app-view">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">Unknown Person Monitoring</h4>
+              <p class="text-muted small mb-0">Unclassified detections flagged for administrative review. Ethical policy: Individuals are never presumed intruders.</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <select id="unknown-filter-verified" class="form-select form-control-custom" onchange="UnknownsController.loadUnknowns()">
+                <option value="All">All Reviews</option>
+                <option value="false">Pending Review Only</option>
+                <option value="true">Verified Only</option>
+              </select>
+              <button class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1 text-nowrap px-3 py-2 fw-semibold" onclick="UnknownsController.handleDeleteAll()" title="Delete all unmatched unknown detection logs">
+                <i data-lucide="trash-2" style="width: 14px;"></i> Delete All
+              </button>
+            </div>
+          </div>
+
+          <div class="card card-custom p-0 overflow-hidden">
+            <div class="table-responsive">
+              <table class="table-dark-custom">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Snapshot</th>
+                    <th>Entrance Camera</th>
+                    <th>Best Similarity</th>
+                    <th>Review Status</th>
+                    <th>Operator Verification</th>
+                  </tr>
+                </thead>
+                <tbody id="unknowns-table-body">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 10. PERFORMANCE ANALYTICS & RESEARCH VIEW  -->
+        <!-- ========================================== -->
+        <div id="view-evaluation" class="app-view">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h4 class="fw-bold mb-1">Research Evaluation & Empirical Benchmark Suite</h4>
+              <p class="text-muted small mb-0">Genuine, measurable performance testing across 10 experimental conditions, hardware telemetry, and ROC curves.</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <select id="benchmark-identities-select" class="form-select form-control-custom" style="width: 140px;">
+                <option value="5">5 Identities</option>
+                <option value="10" selected>10 Identities</option>
+                <option value="20">20 Identities</option>
+              </select>
+              <button id="btn-run-benchmark" class="btn btn-primary d-flex align-items-center gap-2" onclick="EvaluationController.runBenchmarks()">
+                <i data-lucide="play" style="width: 14px;"></i> Run Empirical Benchmark
+              </button>
+            </div>
+          </div>
+
+          <div id="benchmark-running-spinner" class="alert alert-info py-2 d-none mb-4">
+            <span class="spinner-border spinner-border-sm me-2"></span> Executing empirical benchmarks across 10 experimental conditions (Lighting, Distance, Orientation, Noise, Multi-Face, Presentation Attacks)... Please wait.
+          </div>
+
+          <!-- 13 Performance Metrics Cards -->
+          <div class="row g-3 mb-4">
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon success"><i data-lucide="check-circle"></i></div>
+                <div>
+                  <div id="metric-det-acc" class="stat-val">--%</div>
+                  <div class="stat-label">Face Detection Accuracy</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon success"><i data-lucide="target"></i></div>
+                <div>
+                  <div id="metric-id-acc" class="stat-val">--%</div>
+                  <div class="stat-label">Identification Accuracy</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon primary"><i data-lucide="award"></i></div>
+                <div>
+                  <div id="metric-rank1" class="stat-val">--%</div>
+                  <div class="stat-label">Rank-1 Identification Accuracy</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon primary"><i data-lucide="activity"></i></div>
+                <div>
+                  <div id="metric-f1" class="stat-val">--</div>
+                  <div class="stat-label">F1-Score (Harmonic Mean)</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon info"><i data-lucide="sliders"></i></div>
+                <div>
+                  <div id="metric-precision" class="stat-val">--</div>
+                  <div class="stat-label">Precision (TP / TP+FP)</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon info"><i data-lucide="crosshair"></i></div>
+                <div>
+                  <div id="metric-recall" class="stat-val">--</div>
+                  <div class="stat-label">Recall (TP / TP+FN)</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon danger"><i data-lucide="alert-triangle"></i></div>
+                <div>
+                  <div id="metric-far" class="stat-val">--%</div>
+                  <div class="stat-label">False Acceptance Rate (FAR)</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon warning"><i data-lucide="user-minus"></i></div>
+                <div>
+                  <div id="metric-frr" class="stat-val">--%</div>
+                  <div class="stat-label">False Rejection Rate (FRR)</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon warning"><i data-lucide="clock"></i></div>
+                <div>
+                  <div id="metric-det-time" class="stat-val">-- ms</div>
+                  <div class="stat-label">Avg Detection Latency</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon warning"><i data-lucide="cpu"></i></div>
+                <div>
+                  <div id="metric-rec-time" class="stat-val">-- ms</div>
+                  <div class="stat-label">Avg Recognition Latency</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon success"><i data-lucide="zap"></i></div>
+                <div>
+                  <div id="metric-fps" class="stat-val">-- FPS</div>
+                  <div class="stat-label">System Throughput</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="stat-card">
+                <div class="stat-icon primary"><i data-lucide="database"></i></div>
+                <div>
+                  <div id="metric-db-latency" class="stat-val">-- ms</div>
+                  <div class="stat-label">Database Query Latency</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hardware Telemetry Bar -->
+          <div class="card card-custom p-3 mb-4">
+            <div class="row align-items-center">
+              <div class="col-md-4">
+                <span class="text-muted small">CPU Utilization:</span>
+                <strong id="metric-cpu" class="ms-2">--%</strong>
+              </div>
+              <div class="col-md-4">
+                <span class="text-muted small">RAM Utilization:</span>
+                <strong id="metric-ram" class="ms-2">--%</strong>
+              </div>
+              <div class="col-md-4">
+                <span class="text-muted small">Total Pipeline Latency:</span>
+                <strong id="metric-total-time" class="text-primary ms-2">-- ms</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Research Charts for 10 Experimental Conditions -->
+          <div class="row g-4 mb-4">
+            <div class="col-lg-6">
+              <div class="card-custom">
+                <h6 class="fw-bold mb-3">1. Lighting Conditions Performance</h6>
+                <div style="height: 240px;">
+                  <canvas id="chart-lighting"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-6">
+              <div class="card-custom">
+                <h6 class="fw-bold mb-3">2. Camera Distance Sensitivity</h6>
+                <div style="height: 240px;">
+                  <canvas id="chart-distance"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <div class="card-custom">
+                <h6 class="fw-bold mb-3">3. Facial Orientation & Pose Invariance</h6>
+                <div style="height: 240px; display: flex; align-items: center; justify-content: center;">
+                  <canvas id="chart-orientation"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-6">
+              <div class="card-custom">
+                <h6 class="fw-bold mb-3">5. Registry Dataset Scale Latency</h6>
+                <div style="height: 240px;">
+                  <canvas id="chart-scale-latency"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <div class="card-custom">
+                <h6 class="fw-bold mb-3">8. Threshold ROC Curve (FAR vs FRR Trade-off)</h6>
+                <div style="height: 240px;">
+                  <canvas id="chart-roc"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <div class="card-custom">
+                <h6 class="fw-bold mb-3">10. Presentation Attack Detection (Liveness)</h6>
+                <div class="table-responsive">
+                  <table class="table-dark-custom">
+                    <thead>
+                      <tr>
+                        <th>Presentation Type</th>
+                        <th>Classification</th>
+                        <th>Liveness Score</th>
+                        <th>System Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-antispoofing-body">
+                      <!-- Populated by JS -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 11. SYSTEM SETTINGS VIEW                   -->
+        <!-- ========================================== -->
+        <div id="view-settings" class="app-view">
+          <div class="mb-4">
+            <h4 class="fw-bold mb-1">Institutional System Settings</h4>
+            <p class="text-muted small">Configure institution identity, AI detection thresholds, cooldown periods, and camera endpoints. (Never hardcoded)</p>
+          </div>
+
+          <div class="row justify-content-center">
+            <div class="col-lg-8">
+              <div class="card-custom">
+                <form id="form-settings" onsubmit="SettingsController.handleSaveSettings(event)">
+                  <h6 class="fw-bold mb-3">Institution Identity</h6>
+                  <div class="mb-3">
+                    <label class="form-label text-muted small">Educational Institution Name * (Dynamic Branding)</label>
+                    <input type="text" id="setting-institution-name" class="form-control form-control-custom" required>
+                    <small class="text-muted">Updates the header, gate kiosk, login portal, and reports across the entire system immediately.</small>
+                  </div>
+
+                  <div class="mb-4">
+                    <label class="form-label text-muted small">Campus Location / Facility Description</label>
+                    <input type="text" id="setting-campus-location" class="form-control form-control-custom">
+                  </div>
+
+                  <hr class="border-secondary my-4">
+
+                  <h6 class="fw-bold mb-3">AI & Biometric Thresholds</h6>
+                  <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                      <label class="form-label text-muted small">FaceNet Cosine Similarity Threshold</label>
+                      <span id="setting-threshold-val" class="text-primary fw-bold">0.68</span>
+                    </div>
+                    <input type="range" id="setting-similarity-threshold" class="form-range" min="0.50" max="0.90" step="0.01" value="0.68" oninput="document.getElementById('setting-threshold-val').innerText = this.value">
+                    <small class="text-muted">Higher threshold reduces False Acceptance Rate (FAR); lower threshold reduces False Rejection Rate (FRR).</small>
+                  </div>
+
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Anti-Duplication Cooldown (Seconds)</label>
+                      <input type="number" id="setting-cooldown" class="form-control form-control-custom" min="5" max="300" value="30">
+                      <small class="text-muted">Prevents duplicate entry events when a student stands in camera view.</small>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label text-muted small">Minimum Sharpness (Laplacian Variance)</label>
+                      <input type="number" id="setting-blur-variance" class="form-control form-control-custom" value="75.0" step="5.0">
+                      <small class="text-muted">Rejects blurry frames during student biometric enrollment.</small>
+                    </div>
+                  </div>
+
+                  <div class="form-check form-switch mb-4">
+                    <input class="form-check-input" type="checkbox" id="setting-antispoofing" checked>
+                    <label class="form-check-label small" for="setting-antispoofing">
+                      Enable Presentation Attack Detection (Anti-Spoofing heuristics for phone screens and photo prints)
+                    </label>
+                  </div>
+
+                  <hr class="border-secondary my-4">
+
+                  <div class="text-end">
+                    <button type="submit" class="btn btn-primary px-4 py-2">
+                      Save Institutional Configuration
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- MODAL: ADMIN LOGIN (ACCESSED VIA "ADMIN PORTAL" BUTTON)          -->
+  <!-- ================================================================= -->
+  <div class="modal" id="modal-admin-login" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content modal-content-custom">
+        <div class="modal-header modal-header-custom">
+          <div class="d-flex align-items-center gap-2">
+            <i data-lucide="shield-check" class="text-primary" style="width: 20px;"></i>
+            <h6 class="modal-title fw-bold mb-0">Administrator Portal Authentication</h6>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form onsubmit="App.handleAdminLogin(event)">
+          <div class="modal-body p-4">
+            <div class="text-center mb-3">
+              <h5 class="fw-bold dyn-institution-name text-primary mb-1">National Institute</h5>
+              <p class="text-muted small">Enter administrator credentials to access student management and analytics.</p>
+            </div>
+
+            <div id="admin-login-error" class="alert alert-danger py-2 small d-none mb-3"></div>
+
+            <div class="mb-3">
+              <label class="form-label small text-muted">Institutional Admin Email</label>
+              <div class="input-group">
+                <span class="input-group-text bg-transparent border-secondary text-muted"><i data-lucide="mail" style="width: 16px;"></i></span>
+                <input type="email" id="admin-login-email" class="form-control form-control-custom" value="admin@institution.edu" required>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label small text-muted">Password</label>
+              <div class="input-group">
+                <span class="input-group-text bg-transparent border-secondary text-muted"><i data-lucide="lock" style="width: 16px;"></i></span>
+                <input type="password" id="admin-login-password" class="form-control form-control-custom" value="AdminSecure2026!" required>
+              </div>
+            </div>
+
+            <div class="mb-3 text-center">
+              <button type="button" class="btn btn-sm btn-outline-secondary w-100 py-1 small" onclick="
+                document.getElementById('admin-login-email').value = 'admin@institution.edu';
+                document.getElementById('admin-login-password').value = 'AdminSecure2026!';
+              ">
+                <i data-lucide="key" style="width: 14px;" class="me-1"></i> Auto-Fill Default Credentials (admin@institution.edu)
+              </button>
+            </div>
+
+            <button type="submit" id="btn-admin-login" class="btn btn-primary w-100 py-2 fw-semibold">
+              <i data-lucide="log-in" style="width: 16px;" class="me-1"></i> Sign In to Admin Portal
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Register Student or Faculty -->
+  <div class="modal fade" id="modal-register-student" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content modal-content-custom">
+        <div class="modal-header modal-header-custom">
+          <h6 class="modal-title fw-bold">Add Member (Student / Faculty)</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="form-register-student" onsubmit="StudentsController.handleCreateStudent(event)">
+          <div class="modal-body p-4">
+            <div class="mb-3">
+              <label class="form-label small text-muted">Member Type *</label>
+              <select id="new-stu-type" class="form-select form-control-custom" onchange="
+                const isFac = this.value === 'Faculty';
+                document.getElementById('lbl-new-reg').innerText = isFac ? 'Employee / Faculty ID *' : 'Registration Number *';
+                document.getElementById('lbl-new-year').innerText = isFac ? 'Faculty Designation' : 'Academic Year';
+                document.getElementById('new-stu-reg').placeholder = isFac ? 'e.g. FAC/2026/01' : 'e.g. 2026/CS/009';
+              ">
+                <option value="Student" selected>Student</option>
+                <option value="Faculty">Faculty / Academic Staff</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label id="lbl-new-reg" class="form-label small text-muted">Registration Number *</label>
+              <input type="text" id="new-stu-reg" class="form-control form-control-custom text-uppercase" placeholder="e.g. 2026/CS/009" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Full Name *</label>
+              <input type="text" id="new-stu-name" class="form-control form-control-custom" placeholder="e.g. Sarah Jenkins" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Email</label>
+              <input type="email" id="new-stu-email" class="form-control form-control-custom" placeholder="sarah@institution.edu">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Department</label>
+              <select id="new-stu-dept" class="form-select form-control-custom">
+                <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
+                <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
+                <option value="Mechanical Engineering">Mechanical Engineering</option>
+                <option value="Civil Engineering">Civil Engineering</option>
+                <option value="Applied Sciences & Humanities">Applied Sciences & Humanities</option>
+                <option value="School of Management">School of Management</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label id="lbl-new-year" class="form-label small text-muted">Academic Year / Designation</label>
+              <select id="new-stu-year" class="form-select form-control-custom">
+                <option value="1st Year">1st Year</option>
+                <option value="2nd Year">2nd Year</option>
+                <option value="3rd Year">3rd Year</option>
+                <option value="4th Year">4th Year</option>
+                <option value="Professor">Professor</option>
+                <option value="Associate Professor">Associate Professor</option>
+                <option value="Assistant Professor">Assistant Professor</option>
+                <option value="Senior Lecturer">Senior Lecturer</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Phone Number</label>
+              <input type="text" id="new-stu-phone" class="form-control form-control-custom" placeholder="+1 555-0199">
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="new-stu-consent">
+              <label class="form-check-label text-muted small" for="new-stu-consent">
+                Member granted biometric processing consent.
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer modal-footer-custom">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Create Record</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Edit Student -->
+  <div class="modal fade" id="modal-edit-student" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content modal-content-custom">
+        <div class="modal-header modal-header-custom">
+          <h6 class="modal-title fw-bold">Edit Student Information</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form onsubmit="StudentsController.handleUpdateStudent(event)">
+          <input type="hidden" id="edit-stu-id">
+          <div class="modal-body p-4">
+            <div class="mb-3">
+              <label class="form-label small text-muted">Registration Number *</label>
+              <input type="text" id="edit-stu-reg" class="form-control form-control-custom text-uppercase" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Full Name *</label>
+              <input type="text" id="edit-stu-name" class="form-control form-control-custom" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Email</label>
+              <input type="email" id="edit-stu-email" class="form-control form-control-custom">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Department</label>
+              <select id="edit-stu-dept" class="form-select form-control-custom">
+                <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
+                <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
+                <option value="Mechanical Engineering">Mechanical Engineering</option>
+                <option value="Civil Engineering">Civil Engineering</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Academic Year</label>
+              <select id="edit-stu-year" class="form-select form-control-custom">
+                <option value="1st Year">1st Year</option>
+                <option value="2nd Year">2nd Year</option>
+                <option value="3rd Year">3rd Year</option>
+                <option value="4th Year">4th Year</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Phone Number</label>
+              <input type="text" id="edit-stu-phone" class="form-control form-control-custom">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small text-muted">Status</label>
+              <select id="edit-stu-status" class="form-select form-control-custom">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+                <option value="Suspended">Suspended</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer modal-footer-custom">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Import CSV/Excel -->
+  <div class="modal fade" id="modal-import-students" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content modal-content-custom">
+        <div class="modal-header modal-header-custom">
+          <h6 class="modal-title fw-bold">Import Student Roster</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form onsubmit="StudentsController.handleBulkImport(event)">
+          <div class="modal-body p-4">
+            <p class="text-muted small">Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file containing student columns: <code>reg_no</code>, <code>name</code>, <code>department</code>, <code>academic_year</code>, <code>email</code>.</p>
+            <input type="file" id="bulk-import-file" class="form-control form-control-custom" accept=".csv, .xlsx, .xls" required>
+          </div>
+          <div class="modal-footer modal-footer-custom">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" id="btn-submit-import" class="btn btn-primary">Upload & Import Records</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Verify Unknown Person -->
+  <div class="modal fade" id="modal-verify-unknown" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content modal-content-custom">
+        <div class="modal-header modal-header-custom">
+          <h6 class="modal-title fw-bold">Manual Identity Verification</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4 text-center">
+          <img id="verify-unknown-preview" class="rounded border border-secondary mb-3" style="width: 140px; height: 140px; object-fit: cover;" alt="Unknown Snapshot"/>
+          <p class="text-muted small">Human-in-the-loop ethical resolution: Verify or categorize this individual.</p>
+
+          <div class="mb-3 text-start">
+            <label class="form-label small text-muted">Assign Identification Status</label>
+            <select id="verify-status-select" class="form-select form-control-custom">
+              <option value="Verified Student (ID Card Checked)">Verified Student (ID Card Checked)</option>
+              <option value="Authorized Campus Visitor">Authorized Campus Visitor</option>
+              <option value="Staff / Faculty Member">Staff / Faculty Member</option>
+              <option value="Dismissed / Non-Concern">Dismissed / Non-Concern</option>
+            </select>
+          </div>
+
+          <div class="mb-3 text-start">
+            <label class="form-label small text-muted">Officer Review Notes</label>
+            <input type="text" id="verify-notes-input" class="form-control form-control-custom" placeholder="e.g. Verified physical college ID card at North Gate desk.">
+          </div>
+        </div>
+        <div class="modal-footer modal-footer-custom">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" onclick="UnknownsController.submitVerification()">Confirm Verification</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 Bundle JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Client Application Scripts -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/camera.js"></script>
+  <script src="/static/js/enrollment.js"></script>
+  <script src="/static/js/students.js"></script>
+  <script src="/static/js/entries.js"></script>
+  <script src="/static/js/unknowns.js"></script>
+  <script src="/static/js/evaluation.js"></script>
+  <script src="/static/js/settings.js"></script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
